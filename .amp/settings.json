@@ -1,0 +1,12 @@
+{
+    "amp.mcpServers": {
+        "laravel-boost": {
+            "command": "wsl.exe",
+            "args": [
+                "/usr/bin/php",
+                "/home/mem10l/11.03.2026/internship-manager/artisan",
+                "boost:mcp"
+            ]
+        }
+    }
+}
