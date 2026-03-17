@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\ApplicationController;
 use App\Http\Controllers\ApplicationStatusController;
 use App\Http\Controllers\CompanyController;
@@ -24,3 +25,11 @@ Route::apiResource('applications', ApplicationController::class);
 Route::post('applications-procedure', [ApplicationController::class, 'storeWithProcedure']);
 Route::apiResource('placements', PlacementController::class);
 Route::apiResource('grades', GradeController::class);
+
+// Activity Logs
+Route::get('activity-logs', [ActivityLogController::class, 'index']);
+Route::get('activity-logs/user/{userId}', [ActivityLogController::class, 'userActivity']);
+Route::get('activity-logs/entity', [ActivityLogController::class, 'entityActivity']);
+Route::get('activity-logs/{logId}', [ActivityLogController::class, 'show']);
+Route::post('activity-logs', [ActivityLogController::class, 'store']);
+Route::post('activity-logs/clear-old', [ActivityLogController::class, 'clearOld']);
