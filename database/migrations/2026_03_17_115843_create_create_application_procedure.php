@@ -10,6 +10,7 @@ return new class extends Migration
      */
     public function up(): void
     {
+        DB::statement("DROP PROCEDURE IF EXISTS create_application");
         DB::statement("
             CREATE PROCEDURE create_application(
                 IN p_internship_id INT,
