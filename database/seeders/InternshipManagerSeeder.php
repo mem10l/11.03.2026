@@ -3,13 +3,16 @@
 namespace Database\Seeders;
 
 use App\Models\Application;
+use App\Models\Comment;
 use App\Models\Company;
+use App\Models\Evaluation;
 use App\Models\Grade;
 use App\Models\Internship;
 use App\Models\Placement;
 use App\Models\SchoolClass;
 use App\Models\User;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 
 class InternshipManagerSeeder extends Seeder
 {
@@ -27,7 +30,7 @@ class InternshipManagerSeeder extends Seeder
             ['role_id' => 4, 'role_name' => 'Company Representative'],
         ];
         foreach ($userRoles as $role) {
-            \Illuminate\Support\Facades\DB::table('user_roles')->updateOrInsert(
+            DB::table('user_roles')->updateOrInsert(
                 ['role_id' => $role['role_id']],
                 ['role_name' => $role['role_name']]
             );
@@ -44,7 +47,7 @@ class InternshipManagerSeeder extends Seeder
             ['status_id' => 6, 'status_name' => 'Withdrawn'],
         ];
         foreach ($applicationStatuses as $status) {
-            \Illuminate\Support\Facades\DB::table('application_statuses')->updateOrInsert(
+            DB::table('application_statuses')->updateOrInsert(
                 ['status_id' => $status['status_id']],
                 ['status_name' => $status['status_name']]
             );
@@ -59,7 +62,7 @@ class InternshipManagerSeeder extends Seeder
             ['type_id' => 4, 'type_name' => '10-point Scale'],
         ];
         foreach ($gradingTypes as $type) {
-            \Illuminate\Support\Facades\DB::table('grading_types')->updateOrInsert(
+            DB::table('grading_types')->updateOrInsert(
                 ['type_id' => $type['type_id']],
                 ['type_name' => $type['type_name']]
             );
@@ -97,7 +100,7 @@ class InternshipManagerSeeder extends Seeder
             ],
         ];
         foreach ($users as $user) {
-            \Illuminate\Support\Facades\DB::table('users')->updateOrInsert(
+            DB::table('users')->updateOrInsert(
                 ['id' => $user['id']],
                 $user
             );
@@ -132,7 +135,7 @@ class InternshipManagerSeeder extends Seeder
             ],
         ];
         foreach ($companies as $company) {
-            \Illuminate\Support\Facades\DB::table('companies')->updateOrInsert(
+            DB::table('companies')->updateOrInsert(
                 ['company_id' => $company['company_id']],
                 $company
             );
@@ -161,7 +164,7 @@ class InternshipManagerSeeder extends Seeder
             ],
         ];
         foreach ($classes as $class) {
-            \Illuminate\Support\Facades\DB::table('classes')->updateOrInsert(
+            DB::table('classes')->updateOrInsert(
                 ['class_id' => $class['class_id']],
                 $class
             );
@@ -174,7 +177,7 @@ class InternshipManagerSeeder extends Seeder
         $this->command->info('Assigning students to classes...');
         $students = User::where('role_id', 3)->get();
         $classes = SchoolClass::all();
-        
+
         foreach ($students as $student) {
             $randomClass = $classes->random();
             $student->classes()->syncWithoutDetaching([$randomClass->class_id]);
@@ -196,6 +199,111 @@ class InternshipManagerSeeder extends Seeder
         $this->command->info('Seeding Grades...');
         Grade::factory()->count(8)->create();
 
+        // Create Evaluations
+        $this->command->info('Seeding Evaluations...');
+        $this->createSampleEvaluations();
+
+        // Create Comments (polymorphic - for Applications and Evaluations)
+        $this->command->info('Seeding Comments...');
+        $this->createSampleComments();
+
         $this->command->info('Seeding completed successfully!');
+    }
+
+    /**
+     * Create sample evaluations.
+     */
+    private function createSampleEvaluations(): void
+    {
+        $applications = Application::with(['student', 'internship'])->get();
+        $supervisors = User::where('role_id', 2)->get();
+
+        if ($applications->isEmpty() || $supervisors->isEmpty()) {
+            return;
+        }
+
+        // Create evaluations for some applications
+        $applications->take(5)->each(function ($application) use ($supervisors) {
+            Evaluation::create([
+                'application_id' => $application->application_id,
+                'supervisor_id' => $supervisors->random()->id,
+                'grade' => rand(60, 100) / 10,
+                'feedback' => 'Labs darbs! Turpiniet tikpat labi.',
+                'evaluated_at' => now(),
+            ]);
+        });
+    }
+
+    /**
+     * Create sample comments for applications and evaluations.
+     */
+    private function createSampleComments(): void
+    {
+        $applications = Application::all();
+        $evaluations = Evaluation::all();
+        $users = User::all();
+
+        // Create comments for applications
+        $applications->each(function ($application) use ($users) {
+            $commentCount = rand(1, 3);
+            for ($i = 0; $i < $commentCount; $i++) {
+                Comment::create([
+                    'commentable_type' => 'App\Models\Application',
+                    'commentable_id' => $application->application_id,
+                    'content' => $this->getApplicationCommentText($i),
+                    'user_id' => $users->random()->id,
+                    'created_at' => now()->subDays(rand(1, 30)),
+                    'updated_at' => now()->subDays(rand(1, 30)),
+                ]);
+            }
+        });
+
+        // Create comments for evaluations
+        $evaluations->each(function ($evaluation) use ($users) {
+            $commentCount = rand(1, 2);
+            for ($i = 0; $i < $commentCount; $i++) {
+                Comment::create([
+                    'commentable_type' => 'App\Models\Evaluation',
+                    'commentable_id' => $evaluation->evaluation_id,
+                    'content' => $this->getEvaluationCommentText($i),
+                    'user_id' => $users->random()->id,
+                    'created_at' => now()->subDays(rand(1, 20)),
+                    'updated_at' => now()->subDays(rand(1, 20)),
+                ]);
+            }
+        });
+    }
+
+    /**
+     * Get sample application comment text.
+     */
+    private function getApplicationCommentText(int $index): string
+    {
+        $comments = [
+            'Labs pieteikums! Vēlu veiksmi.',
+            'Pieteikums apstiprināts. Lūdzu, sazinieties ar uzņēmumu.',
+            'Nepieciešami papildu dokumenti.',
+            'Paldies par pieteikumu. Mēs to izskatīsim tuvākajā laikā.',
+            'Izcils motivācijas vēstule!',
+            'Lūdzu, precizējiet prakses laiku.',
+        ];
+
+        return $comments[$index % count($comments)];
+    }
+
+    /**
+     * Get sample evaluation comment text.
+     */
+    private function getEvaluationCommentText(int $index): string
+    {
+        $comments = [
+            'Pelnīta atzīme! Ļoti labs darbs.',
+            'Students parādīja izcilas prasmes.',
+            'Ieteicams turpināt pilnveidot zināšanas.',
+            'Labs sniegums prakses laikā.',
+            'Profesionāla pieeja darbam.',
+        ];
+
+        return $comments[$index % count($comments)];
     }
 }

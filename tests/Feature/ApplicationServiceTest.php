@@ -2,9 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Models\ActivityLog;
 use App\Models\Application;
 use App\Models\Company;
-use App\Models\GradingType;
 use App\Models\Internship;
 use App\Models\SchoolClass;
 use App\Models\User;
@@ -27,7 +27,7 @@ class ApplicationServiceTest extends TestCase
         // Seed required data for each test (after DatabaseMigrations runs migrations)
         $this->seedRequiredData();
 
-        $this->applicationService = new ApplicationService();
+        $this->applicationService = new ApplicationService;
     }
 
     private function seedRequiredData(): void
@@ -543,5 +543,346 @@ class ApplicationServiceTest extends TestCase
         // Assert
         $this->assertEquals($initialApplicationCount + 1, Application::count());
         $this->assertEquals('Test motivation letter', $application->motivation_letter);
+    }
+
+    public function test_failed_application_logs_to_journal_when_user_not_found(): void
+    {
+        // Arrange
+        $class = SchoolClass::create([
+            'class_name' => 'DAB-30',
+            'school_year' => 2024,
+        ]);
+        $company = Company::create([
+            'name' => 'Test Company 30',
+            'email' => 'test30@company.com',
+            'address' => 'Test Address 30',
+        ]);
+        $supervisor = User::create([
+            'first_name' => 'John',
+            'last_name' => 'Supervisor',
+            'email' => 'supervisor30@test.com',
+            'role_id' => 2,
+            'password' => bcrypt('password'),
+        ]);
+        $internship = Internship::create([
+            'title' => 'Test Internship 30',
+            'start_date' => now()->addMonth(),
+            'end_date' => now()->addMonths(3),
+            'class_id' => $class->class_id,
+            'supervisor_id' => $supervisor->id,
+            'grading_type_id' => 1,
+        ]);
+
+        $nonExistentUserId = 99999;
+        $initialLogCount = ActivityLog::count();
+
+        // Act & Assert
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Lietotājs netika atrasts datubāzē.');
+
+        $this->applicationService->createApplication(
+            $internship->internship_id,
+            $nonExistentUserId,
+            $company->company_id
+        );
+
+        // Assert - Check that a log entry was created
+        $this->assertEquals($initialLogCount + 1, ActivityLog::count());
+
+        $log = ActivityLog::latest('logged_at')->first();
+        $this->assertEquals('application_failed', $log->action);
+        $this->assertNull($log->user_id);
+        $this->assertEquals(Application::class, $log->entity_type);
+        $this->assertNull($log->entity_id);
+        $this->assertEquals('Lietotājs nav atrasts datubāzē.', $log->description);
+        $this->assertEquals('Lietotājs nav atrasts datubāzē.', $log->metadata['failure_reason']);
+        $this->assertEquals($nonExistentUserId, $log->metadata['student_id']);
+    }
+
+    public function test_failed_application_logs_to_journal_when_internship_not_found(): void
+    {
+        // Arrange
+        $student = User::create([
+            'first_name' => 'Jane',
+            'last_name' => 'Student',
+            'email' => 'student31@test.com',
+            'role_id' => 3,
+            'password' => bcrypt('password'),
+        ]);
+
+        $company = Company::create([
+            'name' => 'Test Company 31',
+            'email' => 'test31@company.com',
+            'address' => 'Test Address 31',
+        ]);
+
+        $nonExistentInternshipId = 99999;
+        $initialLogCount = ActivityLog::count();
+
+        // Act & Assert
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Prakse netika atrasta.');
+
+        $this->applicationService->createApplication(
+            $nonExistentInternshipId,
+            $student->id,
+            $company->company_id
+        );
+
+        // Assert - Check that a log entry was created
+        $this->assertEquals($initialLogCount + 1, ActivityLog::count());
+
+        $log = ActivityLog::latest('logged_at')->first();
+        $this->assertEquals('application_failed', $log->action);
+        $this->assertEquals('Prakse nav atrasta.', $log->description);
+        $this->assertEquals('Prakse nav atrasta.', $log->metadata['failure_reason']);
+        $this->assertEquals($nonExistentInternshipId, $log->metadata['internship_id']);
+    }
+
+    public function test_failed_application_logs_to_journal_when_internship_expired(): void
+    {
+        // Arrange
+        $student = User::create([
+            'first_name' => 'Jane',
+            'last_name' => 'Student',
+            'email' => 'student32@test.com',
+            'role_id' => 3,
+            'password' => bcrypt('password'),
+        ]);
+        $class = SchoolClass::create([
+            'class_name' => 'DAB-32',
+            'school_year' => 2024,
+        ]);
+        $student->classes()->sync([$class->class_id]);
+
+        $company = Company::create([
+            'name' => 'Test Company 32',
+            'email' => 'test32@company.com',
+            'address' => 'Test Address 32',
+        ]);
+        $supervisor = User::create([
+            'first_name' => 'John',
+            'last_name' => 'Supervisor',
+            'email' => 'supervisor32@test.com',
+            'role_id' => 2,
+            'password' => bcrypt('password'),
+        ]);
+        $internship = Internship::create([
+            'title' => 'Test Internship 32',
+            'start_date' => now()->subMonths(6),
+            'end_date' => now()->subMonths(3),
+            'class_id' => $class->class_id,
+            'supervisor_id' => $supervisor->id,
+            'grading_type_id' => 1,
+        ]);
+
+        $initialLogCount = ActivityLog::count();
+
+        // Act & Assert
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Prakse ir beigusies.');
+
+        $this->applicationService->createApplication(
+            $internship->internship_id,
+            $student->id,
+            $company->company_id
+        );
+
+        // Assert - Check that a log entry was created
+        $this->assertEquals($initialLogCount + 1, ActivityLog::count());
+
+        $log = ActivityLog::latest('logged_at')->first();
+        $this->assertEquals('application_failed', $log->action);
+        $this->assertEquals('Prakse ir beigusies.', $log->description);
+        $this->assertEquals('Prakse ir beigusies.', $log->metadata['failure_reason']);
+    }
+
+    public function test_failed_application_logs_to_journal_when_student_not_in_class(): void
+    {
+        // Arrange
+        $student = User::create([
+            'first_name' => 'Jane',
+            'last_name' => 'Student',
+            'email' => 'student33@test.com',
+            'role_id' => 3,
+            'password' => bcrypt('password'),
+        ]);
+        // Student is NOT added to any class
+
+        $company = Company::create([
+            'name' => 'Test Company 33',
+            'email' => 'test33@company.com',
+            'address' => 'Test Address 33',
+        ]);
+        $class = SchoolClass::create([
+            'class_name' => 'DAB-33',
+            'school_year' => 2024,
+        ]);
+        $supervisor = User::create([
+            'first_name' => 'John',
+            'last_name' => 'Supervisor',
+            'email' => 'supervisor33@test.com',
+            'role_id' => 2,
+            'password' => bcrypt('password'),
+        ]);
+        $internship = Internship::create([
+            'title' => 'Test Internship 33',
+            'start_date' => now()->addMonth(),
+            'end_date' => now()->addMonths(3),
+            'class_id' => $class->class_id,
+            'supervisor_id' => $supervisor->id,
+            'grading_type_id' => 1,
+        ]);
+
+        $initialLogCount = ActivityLog::count();
+
+        // Act & Assert
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Studentam nav atļauts pieteikties šajā praksē');
+
+        $this->applicationService->createApplication(
+            $internship->internship_id,
+            $student->id,
+            $company->company_id
+        );
+
+        // Assert - Check that a log entry was created
+        $this->assertEquals($initialLogCount + 1, ActivityLog::count());
+
+        $log = ActivityLog::latest('logged_at')->first();
+        $this->assertEquals('application_failed', $log->action);
+        $this->assertEquals($student->id, $log->user_id);
+        $this->assertEquals('Studentam nav atļauts pieteikties šajā praksē.', $log->description);
+        $this->assertEquals('Nav attiecīgās klases biedrs.', $log->metadata['failure_reason']);
+        $this->assertEquals($student->id, $log->metadata['student_id']);
+    }
+
+    public function test_failed_application_logs_to_journal_when_already_applied(): void
+    {
+        // Arrange
+        $student = User::create([
+            'first_name' => 'Jane',
+            'last_name' => 'Student',
+            'email' => 'student34@test.com',
+            'role_id' => 3,
+            'password' => bcrypt('password'),
+        ]);
+        $class = SchoolClass::create([
+            'class_name' => 'DAB-34',
+            'school_year' => 2024,
+        ]);
+        $student->classes()->sync([$class->class_id]);
+
+        $company = Company::create([
+            'name' => 'Test Company 34',
+            'email' => 'test34@company.com',
+            'address' => 'Test Address 34',
+        ]);
+        $supervisor = User::create([
+            'first_name' => 'John',
+            'last_name' => 'Supervisor',
+            'email' => 'supervisor34@test.com',
+            'role_id' => 2,
+            'password' => bcrypt('password'),
+        ]);
+        $internship = Internship::create([
+            'title' => 'Test Internship 34',
+            'start_date' => now()->addMonth(),
+            'end_date' => now()->addMonths(3),
+            'class_id' => $class->class_id,
+            'supervisor_id' => $supervisor->id,
+            'grading_type_id' => 1,
+        ]);
+
+        // Create first application
+        Application::create([
+            'internship_id' => $internship->internship_id,
+            'student_id' => $student->id,
+            'company_id' => $company->company_id,
+            'status_id' => 1,
+            'motivation_letter' => 'First motivation letter',
+            'submitted_at' => now(),
+        ]);
+
+        $initialLogCount = ActivityLog::count();
+
+        // Act & Assert
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Students jau ir pieteicies šai praksei.');
+
+        $this->applicationService->createApplication(
+            $internship->internship_id,
+            $student->id,
+            $company->company_id,
+            'Second motivation letter'
+        );
+
+        // Assert - Check that a log entry was created
+        $this->assertEquals($initialLogCount + 1, ActivityLog::count());
+
+        $log = ActivityLog::latest('logged_at')->first();
+        $this->assertEquals('application_failed', $log->action);
+        $this->assertEquals($student->id, $log->user_id);
+        $this->assertEquals('Students jau ir pieteicies šai praksei.', $log->description);
+        $this->assertEquals('Jau eksistē pieteikums.', $log->metadata['failure_reason']);
+    }
+
+    public function test_failed_application_logs_to_journal_when_motivation_letter_missing(): void
+    {
+        // Arrange
+        $student = User::create([
+            'first_name' => 'Jane',
+            'last_name' => 'Student',
+            'email' => 'student35@test.com',
+            'role_id' => 3,
+            'password' => bcrypt('password'),
+        ]);
+        $class = SchoolClass::create([
+            'class_name' => 'DAB-35',
+            'school_year' => 2024,
+        ]);
+        $student->classes()->sync([$class->class_id]);
+
+        $company = Company::create([
+            'name' => 'Test Company 35',
+            'email' => 'test35@company.com',
+            'address' => 'Test Address 35',
+        ]);
+        $supervisor = User::create([
+            'first_name' => 'John',
+            'last_name' => 'Supervisor',
+            'email' => 'supervisor35@test.com',
+            'role_id' => 2,
+            'password' => bcrypt('password'),
+        ]);
+        $internship = Internship::create([
+            'title' => 'Test Internship 35',
+            'start_date' => now()->addMonth(),
+            'end_date' => now()->addMonths(3),
+            'class_id' => $class->class_id,
+            'supervisor_id' => $supervisor->id,
+            'grading_type_id' => 1,
+        ]);
+
+        $initialLogCount = ActivityLog::count();
+
+        // Act & Assert
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Motivācijas vēstule ir obligāta.');
+
+        $this->applicationService->createApplication(
+            $internship->internship_id,
+            $student->id,
+            $company->company_id,
+            null
+        );
+
+        // Assert - Check that a log entry was created
+        $this->assertEquals($initialLogCount + 1, ActivityLog::count());
+
+        $log = ActivityLog::latest('logged_at')->first();
+        $this->assertEquals('application_failed', $log->action);
+        $this->assertEquals('Motivācijas vēstule trūkst.', $log->description);
+        $this->assertEquals('Motivācijas vēstule ir obligāta.', $log->metadata['failure_reason']);
     }
 }

@@ -5,10 +5,12 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 class Application extends Model
 {
     use HasFactory;
+
     /**
      * The table associated with the model.
      *
@@ -86,5 +88,13 @@ class Application extends Model
     public function status(): BelongsTo
     {
         return $this->belongsTo(ApplicationStatus::class, 'status_id', 'status_id');
+    }
+
+    /**
+     * Get all comments for this application.
+     */
+    public function comments(): MorphMany
+    {
+        return $this->morphMany(Comment::class, 'commentable');
     }
 }

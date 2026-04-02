@@ -1,17 +1,18 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 
 /**
  * Migration for creating activity log trigger on applications table.
- * 
+ *
  * NOTE: This migration requires SUPER or SYSTEM_VARIABLES_ADMIN privilege.
  * If running in a managed MySQL environment (e.g., AWS RDS, Azure Database),
  * you may need to:
  * 1. Set log_bin_trust_function_creators = 1 at the server level, OR
  * 2. Use the alternative Model Event approach in AppServiceProvider
- * 
+ *
  * Alternative: Use the triggerless approach by enabling ApplicationObserver
  * in AppServiceProvider which achieves the same result using Laravel events.
  */
@@ -19,11 +20,16 @@ return new class extends Migration
 {
     /**
      * Run the migrations.
-     * 
-     * @throws \Illuminate\Database\QueryException if insufficient privileges
+     *
+     * @throws QueryException if insufficient privileges
      */
     public function up(): void
     {
+        // Skip trigger creation on SQLite (used for testing)
+        if (DB::getDriverName() === 'sqlite') {
+            return;
+        }
+
         try {
             DB::unprepared("
                 CREATE TRIGGER log_application_created
@@ -57,10 +63,10 @@ return new class extends Migration
                     );
                 END
             ");
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             // If trigger creation fails due to privileges, log a message
             // The application will use Model Events as fallback (see AppServiceProvider)
-            error_log('Trigger creation failed: ' . $e->getMessage());
+            error_log('Trigger creation failed: '.$e->getMessage());
             error_log('Using Model Events as fallback for activity logging.');
         }
     }
@@ -70,6 +76,11 @@ return new class extends Migration
      */
     public function down(): void
     {
-        DB::statement("DROP TRIGGER IF EXISTS log_application_created");
+        // Skip trigger drop on SQLite (used for testing)
+        if (DB::getDriverName() === 'sqlite') {
+            return;
+        }
+
+        DB::statement('DROP TRIGGER IF EXISTS log_application_created');
     }
 };

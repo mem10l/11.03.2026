@@ -10,7 +10,12 @@ return new class extends Migration
      */
     public function up(): void
     {
-        DB::statement("DROP PROCEDURE IF EXISTS create_application");
+        // Skip stored procedure creation on SQLite (used for testing)
+        if (DB::getDriverName() === 'sqlite') {
+            return;
+        }
+
+        DB::statement('DROP PROCEDURE IF EXISTS create_application');
         DB::statement("
             CREATE PROCEDURE create_application(
                 IN p_internship_id INT,
@@ -26,16 +31,16 @@ return new class extends Migration
                 DECLARE v_class_id INT;
                 DECLARE v_is_class_member INT DEFAULT 0;
                 DECLARE v_existing_application INT DEFAULT 0;
-                
+
                 DECLARE EXIT HANDLER FOR SQLEXCEPTION
                 BEGIN
                     ROLLBACK;
                     SET p_application_id = NULL;
                     SET p_error_message = 'Datubāzes kļūda izveidojot pieteikumu.';
                 END;
-                
+
                 START TRANSACTION;
-                
+
                 -- a) Pārbauda, vai lietotājs ir datubāzē
                 IF NOT EXISTS (SELECT 1 FROM users WHERE id = p_student_id) THEN
                     SET p_application_id = NULL;
@@ -43,11 +48,11 @@ return new class extends Migration
                     ROLLBACK;
                 ELSE
                     -- b) Pārbauda, vai prakse ir derīga
-                    SELECT internship_id, end_date, class_id 
+                    SELECT internship_id, end_date, class_id
                     INTO v_internship_id, v_internship_end_date, v_class_id
-                    FROM internships 
+                    FROM internships
                     WHERE internship_id = p_internship_id;
-                    
+
                     IF v_internship_id IS NULL THEN
                         SET p_application_id = NULL;
                         SET p_error_message = 'Prakse nav atrasta.';
@@ -61,7 +66,7 @@ return new class extends Migration
                         SELECT COUNT(*) INTO v_is_class_member
                         FROM class_members
                         WHERE class_id = v_class_id AND user_id = p_student_id;
-                        
+
                         IF v_is_class_member = 0 THEN
                             SET p_application_id = NULL;
                             SET p_error_message = 'Studentam nav atļauts pieteikties šajā praksē - nav attiecīgās klases biedrs.';
@@ -71,7 +76,7 @@ return new class extends Migration
                             SELECT COUNT(*) INTO v_existing_application
                             FROM applications
                             WHERE internship_id = p_internship_id AND student_id = p_student_id;
-                            
+
                             IF v_existing_application > 0 THEN
                                 SET p_application_id = NULL;
                                 SET p_error_message = 'Students jau ir pieteicies šai praksei.';
@@ -93,10 +98,10 @@ return new class extends Migration
                                     p_motivation_letter,
                                     NOW()
                                 );
-                                
+
                                 SET p_application_id = LAST_INSERT_ID();
                                 SET p_error_message = NULL;
-                                
+
                                 COMMIT;
                             END IF;
                         END IF;
@@ -111,6 +116,11 @@ return new class extends Migration
      */
     public function down(): void
     {
-        DB::statement("DROP PROCEDURE IF EXISTS create_application");
+        // Skip stored procedure drop on SQLite (used for testing)
+        if (DB::getDriverName() === 'sqlite') {
+            return;
+        }
+
+        DB::statement('DROP PROCEDURE IF EXISTS create_application');
     }
 };

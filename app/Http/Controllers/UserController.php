@@ -5,8 +5,8 @@ namespace App\Http\Controllers;
 use App\Http\Resources\UserResource;
 use App\Http\Resources\UserResourceCollection;
 use App\Models\User;
-use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules\Password;
 
@@ -78,7 +78,7 @@ class UserController extends Controller
         $validated = $request->validate([
             'first_name' => ['sometimes', 'required', 'string', 'max:45'],
             'last_name' => ['sometimes', 'required', 'string', 'max:45'],
-            'email' => ['sometimes', 'required', 'string', 'email', 'max:100', 'unique:users,email,' . $user->id . ',id'],
+            'email' => ['sometimes', 'required', 'string', 'email', 'max:100', 'unique:users,email,'.$user->id.',id'],
             'role_id' => ['sometimes', 'required', 'exists:user_roles,role_id'],
             'password' => ['sometimes', 'required', 'confirmed', Password::defaults()],
         ]);
@@ -105,5 +105,30 @@ class UserController extends Controller
         return response()->json([
             'message' => 'User deleted successfully.',
         ]);
+    }
+
+    /**
+     * Get students by class ID.
+     */
+    public function studentsByClass(Request $request, int $classId): UserResourceCollection
+    {
+        $query = User::with('classes')
+            ->where('role_id', 3) // Only students
+            ->whereHas('classes', function ($q) use ($classId) {
+                $q->where('classes.class_id', $classId);
+            });
+
+        if ($request->has('search')) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('first_name', 'like', "%{$search}%")
+                    ->orWhere('last_name', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%");
+            });
+        }
+
+        $students = $query->paginate($request->get('per_page', 15));
+
+        return new UserResourceCollection($students);
     }
 }
